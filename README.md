@@ -121,20 +121,20 @@ The TypeScript implementation provides better type safety, enhanced code complet
 The project uses Zod for schema validation with flexible type transformers. The `transformers.ts` module provides utility functions for transforming data types when validating XML data:
 
 ### Key Components
-- `ZodFlexibleDate`: Transforms string values into Date objects
-- `ZodFlexibleNumber`: Transforms string values into numbers
-- `ZodFlexibleBoolean`: Transforms string values into booleans
+- `parseMismoDate`: Transforms string values into Date objects
+- `parseMismoNumber`: Transforms string values into numbers
+- `parseMismoBoolean`: Transforms string values into booleans
 
 These transformers handle automatic type conversion during schema validation, making the parser more robust when dealing with inconsistent input data from XML sources.
 
 ### Usage Example
 ```typescript
-import { ZodFlexibleDate, ZodFlexibleNumber } from './transformers';
+import { parseMismoDate, parseMismoNumber, parseMismoBoolean } from './transformers';
 
 const MySchema = z.object({
-  createdDate: ZodFlexibleDate,  // Accepts either Date objects or strings that can be parsed as dates
-  amount: ZodFlexibleNumber,     // Accepts either numbers or strings that can be parsed as numbers
-  isActive: ZodFlexibleBoolean   // Accepts either booleans or strings like "true", "yes", "1"
+  createdDate: parseMismoDate,  // Accepts either Date objects or strings that can be parsed as dates
+  amount: parseMismoNumber,     // Accepts either numbers or strings that can be parsed as numbers
+  isActive: parseMismoBoolean   // Accepts either booleans or strings like "true", "yes", "1"
 });
 ```
 
