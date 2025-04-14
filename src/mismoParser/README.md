@@ -24,7 +24,7 @@ The parser has been refactored into the following logical components:
 ## Usage
 
 ```typescript
-import { parseXmlToJson } from 'mortgage-xml-parser';
+import { parseXmlToJson } from 'mismo-parser';
 
 // Read XML file
 const xmlData = fs.readFileSync('loan-file.xml', 'utf8');
@@ -41,3 +41,13 @@ console.log(JSON.stringify(result, null, 2));
 - The module is built using TypeScript
 - All components maintain their original function and variable names for backward compatibility
 - Zod schemas ensure strict validation of parsed data 
+
+## Type Transformation
+
+The module provides special Zod transformers for handling type conversion:
+
+- `parseMismoDate` - Converts string dates to Date objects
+- `parseMismoNumber` - Converts string numbers to numeric values
+- `parseMismoBoolean` - Converts string boolean representations to boolean values
+
+These transformers are used within schemas to ensure consistent data types regardless of the XML input format. 

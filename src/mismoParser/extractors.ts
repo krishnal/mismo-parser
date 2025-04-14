@@ -47,7 +47,7 @@ export function extractLoanSummaryData(xmlObject: XmlObject): z.infer<typeof Loa
         throw new Error("Essential DEAL, PARTIES, or LOANS structure not found or is empty.");
     }
 
-    let rawData: z.infer<typeof LoanApplicationSchema> = {
+    const rawData: z.infer<typeof LoanApplicationSchema> = {
         receivedAt: new Date(),
         meta: {
             mismoVersion,
@@ -165,7 +165,7 @@ export function extractLoanSummaryData(xmlObject: XmlObject): z.infer<typeof Loa
                 terms.currentPrincipalInterestPayment = getDirectValue(paymentBreakdown, 'PrincipalAndInterestPaymentAmount', terms.initialPrincipalInterestPayment); 
             }
 
-            loanObject.terms = terms;
+            loanObject.terms = LoanTermsSchema.parse(terms);
             
             // Extract Loan Detail information
             const loanDetailObj = getValue(loan, ['LOAN_DETAIL']);
@@ -220,7 +220,7 @@ export function extractLoanSummaryData(xmlObject: XmlObject): z.infer<typeof Loa
                 if (remoteOnlineNotarization !== undefined) details.remoteOnlineNotarization = remoteOnlineNotarization;
             }
 
-            loanObject.details = details;
+            loanObject.details = LoanDetailsSchema.parse(details);
            
             
             // HMDA (From AtClosing)
@@ -312,7 +312,7 @@ export function extractLoanSummaryData(xmlObject: XmlObject): z.infer<typeof Loa
                 // Fixed rate loan - explicitly set ARM to null
                 arm = {};
             }
-            loanObject.arm = arm;
+            loanObject.arm = ArmSchema.parse(arm);
             
             // Process qualification
             const qualification: z.infer<typeof QualificationSchema> = {};
@@ -354,7 +354,7 @@ export function extractLoanSummaryData(xmlObject: XmlObject): z.infer<typeof Loa
                     }
                 }
             }
-            loanObject.qualification = qualification;
+            loanObject.qualification = QualificationSchema.parse(qualification);
             
             // Process underwriting
             const underwriting: z.infer<typeof UnderwritingSchema> = {};
@@ -379,7 +379,7 @@ export function extractLoanSummaryData(xmlObject: XmlObject): z.infer<typeof Loa
                 if (loanLevelCreditScore) underwriting.loanLevelCreditScore = loanLevelCreditScore;
                 if (scoreSelectionMethod) underwriting.scoreSelectionMethod = scoreSelectionMethod;
             }
-            loanObject.underwriting = underwriting;
+            loanObject.underwriting = UnderwritingSchema.parse(underwriting);
             
             // Extract LTV ratio values
             const ltvObj = getValue(loan, ['LTV']);
@@ -411,7 +411,7 @@ export function extractLoanSummaryData(xmlObject: XmlObject): z.infer<typeof Loa
                 if (calcType) calculation.type = calcType;
                 if (calcPeriod) calculation.period = calcPeriod;
             }
-            loanObject.calculation = calculation;
+            loanObject.calculation = CalculationSchema.parse(calculation);
             
             // Extract buydown information
             const buydown = getValue(loan, ['BUYDOWN']);

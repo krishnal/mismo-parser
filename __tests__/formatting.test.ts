@@ -4,7 +4,7 @@ import { parseXmlToJson } from '../src/mismoParser';
 
 // Format validation tests for the parser output
 describe('Formatting Function Tests', () => {
-  const fixedRateXmlPath = path.join(__dirname, '../input-files/Scenario-fixed-rate-purchase.xml');
+  const fixedRateXmlPath = path.join(__dirname, './test-files/Scenario-fixed-rate-purchase.xml');
   
   // Test utilities to read files
   const readXmlFile = (filePath: string): string => {

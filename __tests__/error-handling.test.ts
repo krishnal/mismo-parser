@@ -88,7 +88,7 @@ describe('Error Handling and Edge Cases', () => {
   describe('Output Format Handling', () => {
     it('should handle different XML formats correctly', async () => {
       try {
-        const validXmlPath = path.join(__dirname, '../input-files/Scenario-fixed-rate-purchase.xml');
+        const validXmlPath = path.join(__dirname, './test-files/Scenario-fixed-rate-purchase.xml');
         const xmlData = fs.readFileSync(validXmlPath, 'utf8');
         
         // Test result format

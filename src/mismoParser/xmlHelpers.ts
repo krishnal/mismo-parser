@@ -36,7 +36,6 @@ export function getValue(obj: XmlObject, pathSegments: PathSegment[], defaultVal
         // try to find the right extension element
         if (i > 0 && pathSegments[i-1] === 'OTHER' && i+1 < pathSegments.length) {
             // Look for the extension with or without ULDD prefix
-            const nextSegment = pathSegments[i+1];
             const extensionKey = Object.keys(current).find(key => 
                 key === segment || 
                 key === 'ULDD:' + segment ||
@@ -61,4 +60,4 @@ export function getValue(obj: XmlObject, pathSegments: PathSegment[], defaultVal
  */
 export function getDirectValue(obj: XmlObject, key: string, defaultValue: DefaultValue = undefined): any {
     return getValue(obj, [key], defaultValue);
-} 
+}

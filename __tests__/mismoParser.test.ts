@@ -3,9 +3,9 @@ import * as path from 'path';
 import { parseXmlToJson } from '../src/mismoParser';
 
 describe('XML Parser Tests', () => {
-  const fixedRateXmlPath = path.join(__dirname, '../input-files/Scenario-fixed-rate-purchase.xml');
-  const armRefinanceXmlPath = path.join(__dirname, '../input-files/Scenario-arm-refinance.xml');
-  const condoPurchaseXmlPath = path.join(__dirname, '../input-files/Scenario-fixed-rate-condo-purchase.xml');
+  const fixedRateXmlPath = path.join(__dirname, './test-files/Scenario-fixed-rate-purchase.xml');
+  const armRefinanceXmlPath = path.join(__dirname, './test-files/Scenario-arm-refinance.xml');
+  const condoPurchaseXmlPath = path.join(__dirname, './test-files/Scenario-fixed-rate-condo-purchase.xml');
   
   // Test utility to read the XML files
   const readXmlFile = (filePath: string): string => {
