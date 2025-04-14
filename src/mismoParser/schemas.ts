@@ -133,7 +133,7 @@ const AusResultSchema = z.object({
 
 const UnderwritingSchema = z.object({
   ausResults: z.array(AusResultSchema).optional(),
-  isManual: z.boolean().optional(),
+  isManual: parseMismoBoolean.optional(),
   loanLevelCreditScore: z.string().optional(),
   scoreSelectionMethod: z.string().optional(),
   priceLockDateTime: parseMismoDate.optional()
@@ -141,27 +141,28 @@ const UnderwritingSchema = z.object({
 
 const RoundingRuleSchema = z.object({
   type: z.string().optional(),
-  percent: z.string().optional()
+  percent: parseMismoNumber.optional()
 });
 
 const PeriodicCapsSchema = z.object({
   type: z.string().optional(),
-  maxIncreasePercent: z.string().optional(),
-  maxDecreasePercent: z.string().optional(),
-  frequencyMonths: z.string().optional(),
-  firstEffectiveDateForRuleType: z.string().optional()
+  maxIncreasePercent: parseMismoNumber.optional(),
+  maxDecreasePercent: parseMismoNumber.optional(),
+  frequencyMonths: parseMismoNumber.optional(),
+  firstEffectiveDateForRuleType: parseMismoDate.optional()
 });
 
 const ArmSchema = z.object({
-  initialFixedMonths: z.string().optional(),
-  lifetimeCapPercent: z.string().optional(),
-  lifetimeFloorPercent: z.string().optional(),
-  marginPercent: z.string().optional(),
+  initialFixedMonths: parseMismoNumber.optional(),
+  lifetimeCapPercent: parseMismoNumber.optional(),
+  lifetimeFloorPercent: parseMismoNumber.optional(),
+  marginPercent: parseMismoNumber.optional(),
   firstRateChangePaymentEffectiveDate: parseMismoDate.optional(),
   roundingRule: RoundingRuleSchema.optional(),
-  index: z.string().optional(),
-  indexLookbackDays: z.string().optional(),
-  disclosedIndexRatePercent: z.string().optional(),
+  indexSourceType: z.string().optional(),
+  indexSourceDescription: z.string().optional(),
+  indexLookbackDays: parseMismoNumber.optional(),
+  disclosedIndexRatePercent: parseMismoNumber.optional(),
   periodicCaps: z.array(PeriodicCapsSchema).optional(),
   nextRateAdjustmentEffectiveDate: parseMismoDate.optional()
 });
@@ -279,22 +280,10 @@ const OtherPartySchema = z.object({
   id: z.string()
 });
 
-const PartiesAndIdsSchema = z.object({
-  sellerLoanId: z.string().optional(),
-  servicerLoanId: z.string().optional(),
-  mersMin: z.string().optional(),
-  investorCommitmentId: z.string().optional(),
-  originationCompanyId: z.string().optional(),
-  originator: OriginatorSchema.optional(),
-  servicerId: z.string().optional(),
-  notePayTo: z.string().optional(),
-  payeeId: z.string().optional(),
-  documentCustodianId: z.string().optional(),
-  appraiserLicense: z.string().optional(),
-  appraiserSupervisorLicense: z.string().optional(),
-  hoaEin: z.string().optional(),
-  otherParty: z.array(OtherPartySchema).optional(),
-  loanDeliveryFilePreparer: z.string().optional()
+const PartySchema = z.object({
+  role: z.string().optional(),
+  partyId: z.string().optional(),
+  name: z.string().optional()
 });
 
 const DeliveryServicingSchema = z.object({
@@ -330,7 +319,6 @@ const LoanSchema = z.object({
     escrow: EscrowSchema.optional(),
     mi: MiSchema.optional(),
     deliveryServicing: DeliveryServicingSchema.optional(),
-    partiesAndIds: PartiesAndIdsSchema.optional()
   });
 
 // Main LoanApplication schema
@@ -343,6 +331,7 @@ const LoanApplicationSchema = z.object({
   property: PropertySchema.optional(),
   loans: z.array(LoanSchema).optional(),
   borrowers: z.array(BorrowerSchema).optional(),
+  parties: z.array(PartySchema).optional()
 });
 
 export {
@@ -377,9 +366,9 @@ export {
   BorrowerSchema,
   OriginatorSchema,
   OtherPartySchema,
-  PartiesAndIdsSchema,
   DeliveryServicingSchema,
   MetaSchema,
   LoanSchema,
+  PartySchema,
   LoanApplicationSchema
 }; 

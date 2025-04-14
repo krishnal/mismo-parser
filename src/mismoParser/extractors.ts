@@ -20,8 +20,10 @@ import {
   EscrowItemSchema,
   MiSchema,
   DeliveryServicingSchema,
-  PartiesAndIdsSchema,
   BorrowerSchema,
+  AusResultSchema,
+  PeriodicCapsSchema,
+  PartySchema,
 } from './schemas';
 
 /**
@@ -170,6 +172,7 @@ export function extractLoanSummaryData(xmlObject: XmlObject): z.infer<typeof Loa
             // Extract Loan Detail information
             const loanDetailObj = getValue(loan, ['LOAN_DETAIL']);
             const details: z.infer<typeof LoanDetailsSchema> = {};
+            const loanDetailExtCurrent = getValue(loanDetailObj, ['EXTENSION', 'OTHER', 'LOAN_DETAIL_EXTENSION']);
             if (loanDetailObj) {
                 // Extract boolean fields
                 const assumable = getDirectValue(loanDetailObj, 'AssumabilityIndicator');
@@ -193,7 +196,7 @@ export function extractLoanSummaryData(xmlObject: XmlObject): z.infer<typeof Loa
                 const sharedEquity = getDirectValue(loanDetailObj, 'SharedEquityIndicator');
                 const mortgageModification = getDirectValue(loanDetailObj, 'MortgageModificationIndicator');
                 const warehouseLender = getDirectValue(loanDetailObj, 'WarehouseLenderIndicator');
-                const remoteOnlineNotarization = getDirectValue(loanDetailObj, 'RemoteOnlineNotarizationIndicator');
+                const remoteOnlineNotarization = getDirectValue(loanDetailExtCurrent, 'RemoteOnlineNotarizationIndicator');
                 
                 // Update details with extracted values
                 if (assumable !== undefined) details.assumable = assumable;
@@ -231,7 +234,7 @@ export function extractLoanSummaryData(xmlObject: XmlObject): z.infer<typeof Loa
             }
             // ARM Data - check both possible locations
             const armObj = getValue(loan, ['ADJUSTABLE_RATE']) || 
-                getValue(loan, ['ADJUSTMENT', 'INTEREST_RATE_ADJUSTMENT', 'INTEREST_RATE_LIFETIME_ADJUSTMENT_RULE']);
+                getValue(loan, ['ADJUSTMENT', 'INTEREST_RATE_ADJUSTMENT']);
 
             // Determine amortization type (fixed vs ARM)
             const amortizationType = getDirectValue(amortizationObj, 'LoanAmortizationType');
@@ -240,23 +243,30 @@ export function extractLoanSummaryData(xmlObject: XmlObject): z.infer<typeof Loa
             if (armObj && !isFixedRate) {
                 // Check for fixed period in loan details and other ARM patterns
                 const initialFixedMonths = getValue(loan, ['LOAN_DETAIL', 'InitialFixedPeriodEffectiveMonthsCount']);
-                const marginPercent = getDirectValue(armObj, 'MarginRatePercent');
-                const index = getDirectValue(armObj, 'IndexType');
+                
+                // Additional ARM fields if available
+                const lifetimeRule = getValue(armObj, ['INTEREST_RATE_LIFETIME_ADJUSTMENT_RULE']);
+                const lifetimeCapPercent = getDirectValue(lifetimeRule, 'CeilingRatePercent');
+                const lifetimeFloorPercent = getDirectValue(lifetimeRule, 'FloorRatePercent');
+                const marginPercent = getDirectValue(lifetimeRule, 'MarginRatePercent');
+                const disclosedIndexRatePercent = getDirectValue(termsObj, 'DisclosedIndexRatePercent');
+                const roundingType = getDirectValue(lifetimeRule, 'InterestRateRoundingType');
+                const roundingPercent = getDirectValue(lifetimeRule, 'InterestRateRoundingPercent');
+                if (roundingType) arm.roundingRule = { type: roundingType, percent: roundingPercent };
+
+                const indexRule = getValue(armObj, ['INDEX_RULES', 'INDEX_RULE']);
+                const indexSourceType = getDirectValue(indexRule, 'IndexSourceType');
+                const indexSourceDescription=  getDirectValue(indexRule, 'IndexSourceTypeOtherDescription');
+                const indexLookbackDays = getDirectValue(indexRule, 'InterestAndPaymentAdjustmentIndexLeadDaysCount');
                 
                 if (initialFixedMonths) arm.initialFixedMonths = initialFixedMonths;
                 if (marginPercent) arm.marginPercent = marginPercent;
-                if (index) arm.index = index;
-                
-                // Additional ARM fields if available
-                const lifetimeCapPercent = getDirectValue(armObj, 'CeilingRatePercent');
-                const lifetimeFloorPercent = getDirectValue(armObj, 'FloorRatePercent');
-                const indexLookbackDays = getDirectValue(armObj, 'IndexLookbackDaysCount');
-                const disclosedIndexRatePercent = getDirectValue(armObj, 'DisclosedIndexRatePercent');
-                
-                if (lifetimeCapPercent) arm.lifetimeCapPercent = lifetimeCapPercent;
-                if (lifetimeFloorPercent) arm.lifetimeFloorPercent = lifetimeFloorPercent;
+                if (indexSourceType) arm.indexSourceType = indexSourceType;
+                if (indexSourceDescription) arm.indexSourceDescription = indexSourceDescription;
                 if (indexLookbackDays) arm.indexLookbackDays = indexLookbackDays;
                 if (disclosedIndexRatePercent) arm.disclosedIndexRatePercent = disclosedIndexRatePercent;
+                if (lifetimeCapPercent) arm.lifetimeCapPercent = lifetimeCapPercent;
+                if (lifetimeFloorPercent) arm.lifetimeFloorPercent = lifetimeFloorPercent;
                 
                 // First payment and next adjustment dates
                 const firstRateChangePaymentEffectiveDate = getDirectValue(armObj, 'FirstRateChangePaymentEffectiveDate');
@@ -265,44 +275,23 @@ export function extractLoanSummaryData(xmlObject: XmlObject): z.infer<typeof Loa
                 if (firstRateChangePaymentEffectiveDate) {
                     arm.firstRateChangePaymentEffectiveDate = firstRateChangePaymentEffectiveDate;
                 }
-                
                 if (nextRateAdjustmentEffectiveDate) {
                     arm.nextRateAdjustmentEffectiveDate = nextRateAdjustmentEffectiveDate;
                 }
-                
-                // Rounding rules
-                const roundingRuleObj = getValue(armObj, ['ROUNDING_RULE']);
-                if (roundingRuleObj) {
-                    const roundingType = getDirectValue(roundingRuleObj, 'RoundingType');
-                    const roundingPercent = getDirectValue(roundingRuleObj, 'RoundingPercent');
-                    
-                    arm.roundingRule = {
-                        type: roundingType || '',
-                        percent: roundingPercent || ''
-                    };
-                }
-                
                 // Periodic caps
-                const periodicCapsObj = getValue(armObj, ['PERIODIC_RATE_CAP']);
-                
+                const periodicCapsObj = getValue(armObj, ['INTEREST_RATE_PER_CHANGE_ADJUSTMENT_RULES', 'INTEREST_RATE_PER_CHANGE_ADJUSTMENT_RULE']);
                 if (periodicCapsObj) {
-                    const periodicCaps: Array<{
-                        type: string;
-                        maxIncreasePercent: string;
-                        maxDecreasePercent: string;
-                        frequencyMonths: string;
-                        firstEffectiveDateForRuleType: string;
-                    }> = [];
+                    const periodicCaps: z.infer<typeof PeriodicCapsSchema>[] = [];
                     
                     const capsArray = Array.isArray(periodicCapsObj) ? periodicCapsObj : [periodicCapsObj];
                     
                     capsArray.forEach(cap => {
                             periodicCaps.push({
-                            type: getDirectValue(cap, 'PeriodicRateCapRuleType') || '',
-                            maxIncreasePercent: getDirectValue(cap, 'PeriodicRateCapMaximumUpPercent') || '',
-                            maxDecreasePercent: getDirectValue(cap, 'PeriodicRateCapMaximumDownPercent') || '',
-                            frequencyMonths: getDirectValue(cap, 'PeriodicRateCapFrequencyMonthsCount') || '',
-                            firstEffectiveDateForRuleType: getDirectValue(cap, 'FirstPeriodicRateCapEffectiveDateForRuleType') || ''
+                            type: getDirectValue(cap, 'AdjustmentRuleType'),
+                            maxIncreasePercent: getDirectValue(cap, 'PerChangeMaximumIncreaseRatePercent'),
+                            maxDecreasePercent: getDirectValue(cap, 'PerChangeMaximumDecreaseRatePercent'),
+                            frequencyMonths: getDirectValue(cap, 'PerChangeRateAdjustmentFrequencyMonthsCount'),
+                            firstEffectiveDateForRuleType: getDirectValue(cap, 'PerChangeRateAdjustmentEffectiveDate')
                         });
                     });
                     
@@ -360,6 +349,20 @@ export function extractLoanSummaryData(xmlObject: XmlObject): z.infer<typeof Loa
             const underwriting: z.infer<typeof UnderwritingSchema> = {};
             
             // AUS results
+            const underwritingObject = getValue(loan, ['UNDERWRITING']);
+            const aus = getValue(underwritingObject, ['AUTOMATED_UNDERWRITINGS', 'AUTOMATED_UNDERWRITING']); // Could be array
+            underwriting.isManual = getDirectValue(getValue(underwritingObject, ['UNDERWRITING_DETAIL']), 'LoanManualUnderwritingIndicator');
+            underwriting.ausResults = [];
+            const ausArray = Array.isArray(aus) ? aus : [aus];
+            for (const ausItem of ausArray) {
+                const ausResult: z.infer<typeof AusResultSchema> = {};
+                ausResult.system = getDirectValue(ausItem, 'AutomatedUnderwritingSystemType');
+                ausResult.recommendation = getDirectValue(ausItem, 'AutomatedUnderwritingRecommendationDescription');
+                ausResult.caseId = getDirectValue(ausItem, 'AutomatedUnderwritingCaseIdentifier');
+                if (ausResult && Object.keys(ausResult).length > 0) {
+                    underwriting.ausResults.push(AusResultSchema.parse(ausResult));
+                }
+            }
             const selectedProduct = getValue(loan, ['SELECTED_LOAN_PRODUCT']);
             if (selectedProduct) {
                 // Price lock date
@@ -379,6 +382,9 @@ export function extractLoanSummaryData(xmlObject: XmlObject): z.infer<typeof Loa
                 if (loanLevelCreditScore) underwriting.loanLevelCreditScore = loanLevelCreditScore;
                 if (scoreSelectionMethod) underwriting.scoreSelectionMethod = scoreSelectionMethod;
             }
+
+            // AutomatedUnderwritingCaseIdentifier
+
             loanObject.underwriting = UnderwritingSchema.parse(underwriting);
             
             // Extract LTV ratio values
@@ -609,20 +615,14 @@ export function extractLoanSummaryData(xmlObject: XmlObject): z.infer<typeof Loa
             loanObject.deliveryServicing = DeliveryServicingSchema.parse(deliveryServicing);
             
             const loanIdentifiers = getValue(loan, ['LOAN_IDENTIFIERS', 'LOAN_IDENTIFIER']);
-            const partiesAndIds: z.infer<typeof PartiesAndIdsSchema> = {};
+            
             if (loanIdentifiers && loanIdentifiers !== 'N/A') {
                 const idArray = Array.isArray(loanIdentifiers) ? loanIdentifiers : [loanIdentifiers];
                 idArray.forEach(id => {
-                    if (getDirectValue(id, 'SellerLoanIdentifier', null)) partiesAndIds.sellerLoanId = getDirectValue(id, 'SellerLoanIdentifier');
-                    if (getDirectValue(id, 'ServicerLoanIdentifier', null)) partiesAndIds.servicerLoanId = getDirectValue(id, 'ServicerLoanIdentifier');
-                    if (getDirectValue(id, 'MERS_MINIdentifier', null)) partiesAndIds.mersMin = getDirectValue(id, 'MERS_MINIdentifier');
-                    if (getDirectValue(id, 'InvestorCommitmentIdentifier', null)) partiesAndIds.investorCommitmentId = getDirectValue(id, 'InvestorCommitmentIdentifier');
+                    if (getDirectValue(id, 'SellerLoanIdentifier', null)) {
+                        rawData.loanIdentifier = getDirectValue(id, 'SellerLoanIdentifier');
+                    }
                 });
-                loanObject.partiesAndIds = PartiesAndIdsSchema.parse(partiesAndIds);
-            }
-            if (loanObject.partiesAndIds?.sellerLoanId) {
-                rawData.loanIdentifier = loanObject.partiesAndIds.sellerLoanId;
-                loanObject.partiesAndIds.originator = { type: 'Seller', id: loanObject.partiesAndIds.sellerLoanId };
             }
             if (loanObject) loanInApplications.push(LoanSchema.parse(loanObject));
         }
@@ -740,154 +740,49 @@ export function extractLoanSummaryData(xmlObject: XmlObject): z.infer<typeof Loa
     // Extract borrowers data
     const partyArray = Array.isArray(parties) ? parties : [parties];
     const borrowers: z.infer<typeof BorrowerSchema>[] = [];
-
+    const applicationParties: z.infer<typeof PartySchema>[] = [];
     partyArray.forEach(party => {
         const roles = getValue(party, ['ROLES', 'ROLE']);
         const rolesArray = Array.isArray(roles) ? roles : [roles];
         
         rolesArray.forEach(role => {
             const roleType = getValue(role, ['ROLE_DETAIL', 'PartyRoleType']);
-            
-            if (roleType === 'Borrower') {
-                const borrowerDetail = getValue(role, ['BORROWER', 'BORROWER_DETAIL']);
-                const individual = getValue(party, ['INDIVIDUAL']);
-                const address = getValue(party, ['ADDRESSES', 'ADDRESS']);
-                const declaration = getValue(role, ['BORROWER', 'DECLARATION', 'DECLARATION_DETAIL']);
-                const creditScores = getValue(role, ['BORROWER', 'CREDIT_SCORES', 'CREDIT_SCORE']);
-                const employment = getValue(role, ['BORROWER', 'EMPLOYERS', 'EMPLOYER', 'EMPLOYMENT']);
-                const govMonitoring = getValue(role, ['BORROWER', 'GOVERNMENT_MONITORING', 'GOVERNMENT_MONITORING_DETAIL']);
-                
-                // Create borrower object
-                const borrower: z.infer<typeof BorrowerSchema> = {
-                    name: {},
-                    classification: getDirectValue(borrowerDetail, 'BorrowerClassificationType'),
-                    dob: getDirectValue(borrowerDetail, 'BorrowerBirthDate'),
-                    qualifyingIncome: getDirectValue(borrowerDetail, 'BorrowerQualifyingIncomeAmount'),
-                    ageAtApplication: getDirectValue(borrowerDetail, 'BorrowerAgeAtApplicationYearsCount'),
-                    mailToAddressSameAsProperty: getDirectValue(borrowerDetail, 'BorrowerMailToAddressSameAsPropertyIndicator'),
-                    declarations: {
-                        intentToOccupy: getDirectValue(declaration, 'IntentToOccupyType'),
-                        citizenship: getDirectValue(declaration, 'CitizenshipResidencyType'),
-                        bankruptcy: getDirectValue(declaration, 'BankruptcyIndicator'),
-                        foreclosure: getDirectValue(declaration, 'ForeclosureIndicator'),
-                        firstTimeHomebuyer: getDirectValue(declaration, 'BorrowerFirstTimeHomebuyerIndicator')
-                    },
-                    isSelfEmployed: getDirectValue(employment, 'EmploymentBorrowerSelfEmployedIndicator')
-                };
-                // Extract borrower name from NAME element
-                if (individual && individual.NAME) {
-                    const nameElement = individual.NAME;
-                    if (nameElement.FirstName && borrower.name) borrower.name.first = nameElement.FirstName;
-                    if (nameElement.MiddleName && borrower.name) borrower.name.middle = nameElement.MiddleName;
-                    if (nameElement.LastName && borrower.name) borrower.name.last = nameElement.LastName;
-                    if (nameElement.SuffixName && borrower.name) borrower.name.suffix = nameElement.SuffixName;
-                }
-                
-                // Add mailing address if present
-                if (address && getDirectValue(address, 'AddressType') === 'Mailing') {
-                    borrower.mailingAddress = {
-                        line1: getDirectValue(address, 'AddressLineText'),
-                        unit: getDirectValue(address, 'AddressUnitIdentifier'),
-                        city: getDirectValue(address, 'CityName'),
-                        state: getDirectValue(address, 'StateCode'),
-                        zip: getDirectValue(address, 'PostalCode'),
-                        country: getDirectValue(address, 'CountryCode')
-                    };
-                }
-                
-                // Add credit scores if present
-                if (creditScores) {
-                    const scoreArray = Array.isArray(creditScores) ? creditScores : [creditScores];
-                    borrower.creditScores = scoreArray.map(score => {
-                        const scoreDetail = getValue(score, ['CREDIT_SCORE_DETAIL']);
-                        return {
-                            repository: scoreDetail ? getDirectValue(scoreDetail, 'CreditRepositorySourceType') || '' : '',
-                            score: scoreDetail ? getDirectValue(scoreDetail, 'CreditScoreValue') || '' : '',
-                            reportId: scoreDetail ? getDirectValue(scoreDetail, 'CreditReportIdentifier') || '' : ''
-                        };
-                    });
-                }
-                
-                // Extract borrower's SSN last 4 digits
-                const taxpayerIdentifiers = getValue(party, ['TAXPAYER_IDENTIFIERS', 'TAXPAYER_IDENTIFIER']);
-                if (taxpayerIdentifiers) {
-                    const taxIdArray = Array.isArray(taxpayerIdentifiers) ? taxpayerIdentifiers : [taxpayerIdentifiers];
-                    
-                    for (const taxId of taxIdArray) {
-                        const taxIdType = getDirectValue(taxId, 'TaxpayerIdentifierType');
-                        const taxIdValue = getDirectValue(taxId, 'TaxpayerIdentifierValue');
-                        
-                        if (taxIdType === 'SocialSecurityNumber' && taxIdValue) {
-                            borrower.ssnLast4 = taxIdValue.slice(-4);
-                            break;
-                        }
-                    }
-                }
-                
-                // Add HMDA demographics if present
-                if (govMonitoring) {
-                    const govExt = getValue(govMonitoring, ['EXTENSION', 'OTHER', 'GOVERNMENT_MONITORING_DETAIL_EXTENSION']);
-                    
-                    borrower.hmdaDemographics = {
-                        ethnicityCollectedByObservation: getDirectValue(govExt, 'HMDAEthnicityCollectedBasedOnVisualObservationOrSurnameIndicator'),
-                        ethnicityRefused: getDirectValue(govExt, 'HMDAEthnicityRefusalIndicator'),
-                        raceCollectedByObservation: getDirectValue(govExt, 'HMDARaceCollectedBasedOnVisualObservationOrSurnameIndicator'),
-                        raceRefused: getDirectValue(govExt, 'HMDARaceRefusalIndicator'),
-                        gender: {
-                            type: getDirectValue(govExt, 'HMDAGenderType') || '',
-                            collectedByObservation: getDirectValue(govExt, 'HMDAGenderCollectedBasedOnVisualObservationOrNameIndicator'),
-                            refused: getDirectValue(govExt, 'HMDAGenderRefusalIndicator')
-                        }
-                    };
-                    
-                    // Process ethnicity and race from their respective extensions
-                    const ethnicityExt = getValue(party, ['ROLES', 'ROLE', 'BORROWER', 'GOVERNMENT_MONITORING', 
-                        'EXTENSION', 'OTHER', 'GOVERNMENT_MONITORING_EXTENSION', 'HMDA_ETHNICITIES', 'HMDA_ETHNICITY']);
-                    
-                    if (ethnicityExt) {
-                        const ethnicityArray = Array.isArray(ethnicityExt) ? ethnicityExt : [ethnicityExt];
-                        borrower.hmdaDemographics.ethnicity = ethnicityArray.map(eth => ({
-                            type: getDirectValue(eth, 'HMDAEthnicityType') || ''
-                        }));
-                    }
-                    
-                    // Extract ethnicity origins
-                    const ethnicityOrigins = getValue(party, ['ROLES', 'ROLE', 'BORROWER', 'GOVERNMENT_MONITORING', 
-                        'EXTENSION', 'OTHER', 'GOVERNMENT_MONITORING_EXTENSION', 'HMDA_ETHNICITY_ORIGINS', 'HMDA_ETHNICITY_ORIGIN']);
-                    
-                    if (ethnicityOrigins) {
-                        const originsArray = Array.isArray(ethnicityOrigins) ? ethnicityOrigins : [ethnicityOrigins];
-                        const originValues: string[] = [];
-                        
-                        originsArray.forEach(origin => {
-                            const originType = getDirectValue(origin, 'HMDAEthnicityOriginType');
-                            
-                            if (originType === 'Other') {
-                                const otherDescription = getDirectValue(origin, 'HMDAEthnicityOriginTypeOtherDescription');
-                                if (otherDescription) originValues.push(otherDescription);
-                            } else if (originType) {
-                                originValues.push(originType);
-                            }
-                        });
-                        
-                        if (originValues.length > 0) {
-                            borrower.hmdaDemographics.ethnicityOrigins = originValues;
-                        }
-                    }
-                    
-                    const raceExt = getValue(party, ['ROLES', 'ROLE', 'BORROWER', 'GOVERNMENT_MONITORING', 
-                        'HMDA_RACES', 'HMDA_RACE', 'EXTENSION', 'OTHER', 'HMDA_RACE_EXTENSION', 'HMDA_RACE_DETAIL']);
-                    
-                    if (raceExt) {
-                        const raceArray = Array.isArray(raceExt) ? raceExt : [raceExt];
-                        borrower.hmdaDemographics.race = raceArray.map(race => ({
-                            type: getDirectValue(race, 'HMDARaceType'),
-                            otherDescription: getDirectValue(race, 'HMDARaceTypeOtherDescription')
-                        }));
-                    }
-                }
-                
-                borrowers.push(BorrowerSchema.parse(borrower));
+
+            switch (roleType) {
+                case 'Borrower':
+                    const borrower = extractBorrower(role, party);
+                    borrowers.push(BorrowerSchema.parse(borrower));
+                    break;
+
+                case 'LoanOriginationCompany':
+                    applicationParties.push(extractParty('LoanOriginationCompany', party));
+                    break;
+                case 'LoanOriginator':
+                    applicationParties.push(extractParty('LoanOriginator', party));
+                    break;
+                case 'LoanSeller':
+                    applicationParties.push(extractParty('LoanSeller', party));
+                    break;
+                case 'Servicer':
+                    applicationParties.push(extractParty('Servicer', party));
+                    break;
+                case 'NotePayTo':
+                    applicationParties.push(extractParty('NotePayTo', party));
+                    break;
+                case 'Payee':
+                    applicationParties.push(extractParty('Payee', party));
+                    break;
+                case 'DocumentCustodian':
+                    applicationParties.push(extractParty('DocumentCustodian', party));
+                    break;
+                case 'Appraiser':
+                    applicationParties.push(extractParty('Appraiser', party));
+                    break;
+                case 'AppraiserSupervisor':
+                    applicationParties.push(extractParty('AppraiserSupervisor', party));
+                    break;
+                default:
+                    break;
             }
         });
     });
@@ -895,9 +790,171 @@ export function extractLoanSummaryData(xmlObject: XmlObject): z.infer<typeof Loa
     if (borrowers.length > 0) {
         rawData.borrowers = borrowers;
     }
+    if (applicationParties.length > 0) {
+        rawData.parties = applicationParties;
+    }
 
     rawData.loans = loanInApplications;
     
     const parsed = LoanApplicationSchema.parse(rawData);
     return parsed;
-} 
+}
+
+function extractBorrower(role: XmlObject, party: XmlObject): z.infer<typeof BorrowerSchema> {
+    
+    const borrowerDetail = getValue(role, ['BORROWER', 'BORROWER_DETAIL']);
+    const individual = getValue(party, ['INDIVIDUAL']);
+    const address = getValue(party, ['ADDRESSES', 'ADDRESS']);
+    const declaration = getValue(role, ['BORROWER', 'DECLARATION', 'DECLARATION_DETAIL']);
+    const creditScores = getValue(role, ['BORROWER', 'CREDIT_SCORES', 'CREDIT_SCORE']);
+    const employment = getValue(role, ['BORROWER', 'EMPLOYERS', 'EMPLOYER', 'EMPLOYMENT']);
+    const govMonitoring = getValue(role, ['BORROWER', 'GOVERNMENT_MONITORING', 'GOVERNMENT_MONITORING_DETAIL']);
+    
+    // Create borrower object
+    const borrower: z.infer<typeof BorrowerSchema> = {
+        name: {},
+        classification: getDirectValue(borrowerDetail, 'BorrowerClassificationType'),
+        dob: getDirectValue(borrowerDetail, 'BorrowerBirthDate'),
+        qualifyingIncome: getDirectValue(borrowerDetail, 'BorrowerQualifyingIncomeAmount'),
+        ageAtApplication: getDirectValue(borrowerDetail, 'BorrowerAgeAtApplicationYearsCount'),
+        mailToAddressSameAsProperty: getDirectValue(borrowerDetail, 'BorrowerMailToAddressSameAsPropertyIndicator'),
+        declarations: {
+            intentToOccupy: getDirectValue(declaration, 'IntentToOccupyType'),
+            citizenship: getDirectValue(declaration, 'CitizenshipResidencyType'),
+            bankruptcy: getDirectValue(declaration, 'BankruptcyIndicator'),
+            foreclosure: getDirectValue(declaration, 'ForeclosureIndicator'),
+            firstTimeHomebuyer: getDirectValue(declaration, 'BorrowerFirstTimeHomebuyerIndicator')
+        },
+        isSelfEmployed: getDirectValue(employment, 'EmploymentBorrowerSelfEmployedIndicator')
+    };
+    // Extract borrower name from NAME element
+    const nameElement = individual?.NAME;
+    if (nameElement) {
+        if (nameElement.FirstName && borrower.name) borrower.name.first = nameElement.FirstName;
+        if (nameElement.MiddleName && borrower.name) borrower.name.middle = nameElement.MiddleName;
+        if (nameElement.LastName && borrower.name) borrower.name.last = nameElement.LastName;
+        if (nameElement.SuffixName && borrower.name) borrower.name.suffix = nameElement.SuffixName;
+    }
+    
+    // Add mailing address if present
+    if (address && getDirectValue(address, 'AddressType') === 'Mailing') {
+        borrower.mailingAddress = {
+            line1: getDirectValue(address, 'AddressLineText'),
+            unit: getDirectValue(address, 'AddressUnitIdentifier'),
+            city: getDirectValue(address, 'CityName'),
+            state: getDirectValue(address, 'StateCode'),
+            zip: getDirectValue(address, 'PostalCode'),
+            country: getDirectValue(address, 'CountryCode')
+        };
+    }
+    
+    // Add credit scores if present
+    if (creditScores) {
+        const scoreArray = Array.isArray(creditScores) ? creditScores : [creditScores];
+        borrower.creditScores = scoreArray.map(score => {
+            const scoreDetail = getValue(score, ['CREDIT_SCORE_DETAIL']);
+            return {
+                repository: scoreDetail ? getDirectValue(scoreDetail, 'CreditRepositorySourceType') || '' : '',
+                score: scoreDetail ? getDirectValue(scoreDetail, 'CreditScoreValue') || '' : '',
+                reportId: scoreDetail ? getDirectValue(scoreDetail, 'CreditReportIdentifier') || '' : ''
+            };
+        });
+    }
+    
+    // Extract borrower's SSN last 4 digits
+    const taxpayerIdentifiers = getValue(party, ['TAXPAYER_IDENTIFIERS', 'TAXPAYER_IDENTIFIER']);
+    if (taxpayerIdentifiers) {
+        const taxIdArray = Array.isArray(taxpayerIdentifiers) ? taxpayerIdentifiers : [taxpayerIdentifiers];
+        
+        for (const taxId of taxIdArray) {
+            const taxIdType = getDirectValue(taxId, 'TaxpayerIdentifierType');
+            const taxIdValue = getDirectValue(taxId, 'TaxpayerIdentifierValue');
+            
+            if (taxIdType === 'SocialSecurityNumber' && taxIdValue) {
+                borrower.ssnLast4 = taxIdValue.slice(-4);
+                break;
+            }
+        }
+    }
+    
+    // Add HMDA demographics if present
+    if (govMonitoring) {
+        const govExt = getValue(govMonitoring, ['EXTENSION', 'OTHER', 'GOVERNMENT_MONITORING_DETAIL_EXTENSION']);
+        
+        borrower.hmdaDemographics = {
+            ethnicityCollectedByObservation: getDirectValue(govExt, 'HMDAEthnicityCollectedBasedOnVisualObservationOrSurnameIndicator'),
+            ethnicityRefused: getDirectValue(govExt, 'HMDAEthnicityRefusalIndicator'),
+            raceCollectedByObservation: getDirectValue(govExt, 'HMDARaceCollectedBasedOnVisualObservationOrSurnameIndicator'),
+            raceRefused: getDirectValue(govExt, 'HMDARaceRefusalIndicator'),
+            gender: {
+                type: getDirectValue(govExt, 'HMDAGenderType') || '',
+                collectedByObservation: getDirectValue(govExt, 'HMDAGenderCollectedBasedOnVisualObservationOrNameIndicator'),
+                refused: getDirectValue(govExt, 'HMDAGenderRefusalIndicator')
+            }
+        };
+        
+        // Process ethnicity and race from their respective extensions
+        const ethnicityExt = getValue(party, ['ROLES', 'ROLE', 'BORROWER', 'GOVERNMENT_MONITORING', 
+            'EXTENSION', 'OTHER', 'GOVERNMENT_MONITORING_EXTENSION', 'HMDA_ETHNICITIES', 'HMDA_ETHNICITY']);
+        
+        if (ethnicityExt) {
+            const ethnicityArray = Array.isArray(ethnicityExt) ? ethnicityExt : [ethnicityExt];
+            borrower.hmdaDemographics.ethnicity = ethnicityArray.map(eth => ({
+                type: getDirectValue(eth, 'HMDAEthnicityType') || ''
+            }));
+        }
+        
+        // Extract ethnicity origins
+        const ethnicityOrigins = getValue(party, ['ROLES', 'ROLE', 'BORROWER', 'GOVERNMENT_MONITORING', 
+            'EXTENSION', 'OTHER', 'GOVERNMENT_MONITORING_EXTENSION', 'HMDA_ETHNICITY_ORIGINS', 'HMDA_ETHNICITY_ORIGIN']);
+        
+        if (ethnicityOrigins) {
+            const originsArray = Array.isArray(ethnicityOrigins) ? ethnicityOrigins : [ethnicityOrigins];
+            const originValues: string[] = [];
+            
+            originsArray.forEach(origin => {
+                const originType = getDirectValue(origin, 'HMDAEthnicityOriginType');
+                
+                if (originType === 'Other') {
+                    const otherDescription = getDirectValue(origin, 'HMDAEthnicityOriginTypeOtherDescription');
+                    if (otherDescription) originValues.push(otherDescription);
+                } else if (originType) {
+                    originValues.push(originType);
+                }
+            });
+            
+            if (originValues.length > 0) {
+                borrower.hmdaDemographics.ethnicityOrigins = originValues;
+            }
+        }
+        
+        const raceExt = getValue(party, ['ROLES', 'ROLE', 'BORROWER', 'GOVERNMENT_MONITORING', 
+            'HMDA_RACES', 'HMDA_RACE', 'EXTENSION', 'OTHER', 'HMDA_RACE_EXTENSION', 'HMDA_RACE_DETAIL']);
+        
+        if (raceExt) {
+            const raceArray = Array.isArray(raceExt) ? raceExt : [raceExt];
+            borrower.hmdaDemographics.race = raceArray.map(race => ({
+                type: getDirectValue(race, 'HMDARaceType'),
+                otherDescription: getDirectValue(race, 'HMDARaceTypeAdditionalDescription')
+            }));
+        }
+    }
+
+    return borrower;
+}
+
+function extractParty(role: string, party: XmlObject): z.infer<typeof PartySchema> {
+    const partySchema: z.infer<typeof PartySchema> = {};
+    const paths = ['ROLES'];
+    let element = 'PartyRoleIdentifier';
+    if (['Appraiser', 'AppraiserSupervisor'].includes(role)) {
+        paths.push('ROLE', 'APPRAISER', 'APPRAISER_LICENSE');
+        element = 'AppraiserLicenseIdentifier';
+    } else {
+        paths.push('PARTY_ROLE_IDENTIFIERS', 'PARTY_ROLE_IDENTIFIER');
+    }
+    const identifier = getDirectValue(getValue(party, paths), element);
+    partySchema.role = role;
+    partySchema.partyId = identifier;
+    return PartySchema.parse(partySchema);
+}
