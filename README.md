@@ -106,17 +106,6 @@ The parser uses a modular approach with the following key components:
 4. **Formatting**: Formats dates, currency values, percentages, etc.
 5. **Output Generation**: Creates JSON output as specified
 
-## Conversion from JavaScript to TypeScript
-
-This project involved converting the original JavaScript parser (`xmlParser.js`) to TypeScript with:
-
-1. Proper type definitions
-2. Zod schema for type casting
-3. Interface alignment with the `ILoanApplication` schema
-4. Improved error handling and type safety
-
-The TypeScript implementation provides better type safety, enhanced code completion, and better integration with modern TypeScript tools and workflows.
-
 ## Type Transformation
 The project uses Zod for schema validation with flexible type transformers. The `transformers.ts` module provides utility functions for transforming data types when validating XML data:
 
